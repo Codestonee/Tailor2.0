@@ -10,42 +10,50 @@ class JobEngine:
     def search_jobs(query: str, limit: int = 10, location: str = None):
         """
         Söker efter jobb via Arbetsförmedlingens öppna API (JobTech).
-        Ingen API-nyckel krävs för grundläggande sökningar i deras öppna data.
         """
+        # Bygg söksträngen
+        # Om användaren inte skrivit något sökord men har en plats, sök på platsen
+        search_term = query if query else ""
+        if location:
+            search_term += f" {location}"
+            
+        # Om både query och location saknas, returnera tomt direkt
+        if not search_term.strip():
+            return []
+
         params = {
-            "q": query,
+            "q": search_term.strip(),
             "limit": limit,
             "offset": 0
         }
         
-        # Om plats anges, lägg till det i sökfrågan för enkelhetens skull
-        # (API:et har specifika ID:n för orter, men fritextsökning fungerar ofta bra)
-        if location:
-            params["q"] += f" {location}"
-
         try:
-            logger.info(f"🔍 Söker jobb med query: {params['q']}")
+            logger.info(f"🔍 Söker jobb med params: {params}")
             response = requests.get(JobEngine.BASE_URL, params=params, timeout=10)
             response.raise_for_status()
             
             data = response.json()
             hits = data.get("hits", [])
             
-            # Vi normaliserar datan så den är lätt att använda i frontend
             normalized_jobs = []
             for hit in hits:
+                # SÄKERHET: Använd "or" för att garantera att vi aldrig skickar None (null)
+                # Detta förhindrar att Pydantic kraschar om API:et saknar data.
                 job = {
-                    "id": str(hit.get("id")),
-                    "title": hit.get("headline"),
-                    "company": hit.get("employer", {}).get("name", "Okänd arbetsgivare"),
-                    "location": hit.get("workplace_address", {}).get("municipality", "Sverige"),
-                    "description": hit.get("description", {}).get("text", ""),
-                    "url": hit.get("webpage_url", "")
+                    "id": str(hit.get("id") or ""),
+                    "title": hit.get("headline") or "Utan rubrik",
+                    "company": hit.get("employer", {}).get("name") or "Okänd arbetsgivare",
+                    "location": hit.get("workplace_address", {}).get("municipality") or "Sverige",
+                    "description": hit.get("description", {}).get("text") or "Ingen beskrivning",
+                    "url": hit.get("webpage_url") or ""
                 }
                 normalized_jobs.append(job)
                 
             return normalized_jobs
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"❌ Fel vid jobbsökning: {e}")
+            logger.error(f"❌ Nätverksfel vid jobbsökning: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"❌ Oväntat fel vid parsning av jobb: {e}")
             return []

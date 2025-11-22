@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Sparkles, ArrowRight, CheckCircle2, Zap, BarChart3, User, Check } from 'lucide-react';
+import { Sparkles, ArrowRight, CheckCircle2, Zap, BarChart3, User, Check, FileText, Menu } from 'lucide-react';
 import { InputSection } from './components/InputSection';
 import { ResultsView } from './components/ResultsView';
 import { ResultsSkeleton } from './components/ResultsSkeleton';
+import { ProgressStepper } from './components/ProgressStepper'; // <--- NY IMPORT
 import { analyzeApplication } from './lib/api';
 import { AnalysisRequest, AnalysisResult, AnalysisStatus } from './types';
 
@@ -37,17 +38,22 @@ export default function App() {
 
   const isValid = !!(requestData.cvFile && requestData.jobDescription && requestData.jobDescription.length > 20);
 
+  // --- NY LOGIK: Räkna ut vilket steg användaren är på ---
+  let currentStep = 1;
+  if (requestData.cvFile) currentStep = 2; // Har CV -> Gå till steg 2
+  if (requestData.cvFile && requestData.jobDescription) currentStep = 3; // Har båda -> Redo att analysera
+  if (result) currentStep = 4; // Har resultat -> Klart
+  // -------------------------------------------------------
+
   return (
     <div className="min-h-screen flex flex-col bg-neutral-50 font-sans text-neutral-900 overflow-x-hidden">
       
       {/* HEADER */}
       <header className="sticky top-0 z-50 w-full bg-white/95 backdrop-blur-md border-b border-neutral-200/80 shadow-sm transition-all">
-        
         {/* Dekorativ Topp-linje */}
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-secondary to-primary" />
 
         <div className="max-w-7xl mx-auto px-6 h-24 flex items-center justify-between">
-          
           {/* LOGOTYP */}
           <div className="flex items-center gap-4 select-none cursor-pointer group" onClick={() => window.location.reload()}>
             <img 
@@ -75,7 +81,7 @@ export default function App() {
 
       <main className="flex-1 w-full pb-24">
         
-        {/* HERO SEKTION - Kompakt och Snygg */}
+        {/* HERO SEKTION */}
         <div className="relative bg-neutral-50 overflow-hidden pt-12 pb-16 lg:py-20">
           <div className="max-w-7xl mx-auto px-6 flex flex-col lg:flex-row items-center gap-10 lg:gap-20">
             
@@ -94,7 +100,6 @@ export default function App() {
 
             {/* Höger: Illustration */}
             <div className="lg:w-1/2 relative w-full h-[380px] flex justify-center items-center perspective-1000">
-              
               <div className="absolute w-[450px] h-[450px] bg-gradient-to-tr from-primary/10 via-secondary/10 to-transparent rounded-full blur-3xl animate-pulse-slow pointer-events-none" />
 
               {/* Dashboard Kort */}
@@ -148,13 +153,19 @@ export default function App() {
                     <span>Perfekt match</span>
                  </div>
               </div>
-
             </div>
           </div>
         </div>
 
         {/* WORKSPACE SECTION */}
         <div className="max-w-7xl mx-auto px-6 -mt-6 relative z-20">
+          
+          {/* --- NYTT: Progress Stepper --- */}
+          <div className="mb-10 max-w-3xl mx-auto">
+            <ProgressStepper currentStep={currentStep} />
+          </div>
+          {/* ----------------------------- */}
+
           <div className="grid lg:grid-cols-12 gap-8 items-start">
             
             {/* VÄNSTER: INPUT */}
@@ -225,7 +236,7 @@ export default function App() {
                 <ResultsView result={result} />
               ) : (
                 <div className="h-full min-h-[600px] bg-white border border-neutral-200 rounded-2xl shadow-card flex flex-col items-center justify-center text-center p-12 relative overflow-hidden group">
-                  {/* Gradient Linje */}
+                  {/* Gradient Header */}
                   <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-secondary to-primary" />
                   
                   <div className="absolute inset-0 bg-[radial-gradient(#E6E6E6_1px,transparent_1px)] [background-size:24px_24px] opacity-60" />

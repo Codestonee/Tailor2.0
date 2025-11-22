@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UploadCloud, FileText, X, Search, Type, Briefcase, CheckCircle2 } from 'lucide-react';
+import { UploadCloud, FileText, X, Search, Type, Briefcase, CheckCircle2, MapPin } from 'lucide-react';
 import { AnalysisRequest, JobResult } from '../types';
 import { searchJobs } from '../lib/api';
 
@@ -15,23 +15,36 @@ export const InputSection: React.FC<InputSectionProps> = ({ data, onChange, disa
   const [searchLocation, setSearchLocation] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<JobResult[]>([]);
+  const [hasSearched, setHasSearched] = useState(false); // Ny state för att veta om vi sökt
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0]) onChange({ cvFile: e.target.files[0] });
   };
   const removeFile = () => onChange({ cvFile: undefined });
+  
   const performSearch = async () => {
-      if (!searchQuery) return;
+    // Tillåt sökning om antingen query ELLER location är ifyllt
+    if (!searchQuery && !searchLocation) return;
+      
       setIsSearching(true);
-      const results = await searchJobs(searchQuery, searchLocation);
-      setSearchResults(results);
-      setIsSearching(false);
+      setHasSearched(true); // Markera att vi har gjort ett försök
+      setSearchResults([]); // Rensa gamla resultat
+      
+      try {
+        const results = await searchJobs(searchQuery, searchLocation);
+        setSearchResults(results);
+      } catch (error) {
+        console.error("Sökfel:", error);
+      } finally {
+        setIsSearching(false);
+      }
   };
+
   const selectJob = (job: JobResult) => onChange({ jobDescription: job.description, selectedJob: job });
   const clearSelectedJob = () => onChange({ jobDescription: '', selectedJob: undefined });
 
-  // Style classes baserat på Brand Kit
-  const cardClass = "bg-neutral-50 p-5 rounded-brand border border-neutral-200 transition-all duration-300 hover:border-primary/50 hover:shadow-md group";
+  // Style classes
+  const cardClass = "bg-neutral-50 p-5 rounded-brand border border-neutral-200 transition-all duration-300 hover:border-primary/50 hover:shadow-md group relative overflow-hidden";
   const labelClass = "text-xs font-bold uppercase tracking-wider text-neutral-500 mb-3 flex items-center justify-between font-heading";
 
   return (
@@ -39,7 +52,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ data, onChange, disa
       
       {/* 1. CV UPLOAD */}
       <div className={cardClass}>
-        {/* Gradient-linje vid hover */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary to-secondary opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
         
         <div className={labelClass}>
@@ -79,7 +91,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ data, onChange, disa
 
       {/* 2. JOB DESCRIPTION */}
       <div className={cardClass}>
-        {/* Gradient-linje vid hover */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary to-secondary opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
         <div className={labelClass}>
@@ -106,11 +117,34 @@ export const InputSection: React.FC<InputSectionProps> = ({ data, onChange, disa
               <input type="text" placeholder="T.ex. Systemutvecklare" className="flex-1 bg-white border border-neutral-300 focus:border-primary focus:ring-1 focus:ring-primary rounded-brand px-3 py-2 text-sm outline-none transition-all" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && performSearch()} />
               <button onClick={performSearch} disabled={isSearching || !searchQuery} className="bg-neutral-800 text-white px-3 rounded-brand hover:bg-neutral-900 transition-colors"><Search size={16} /></button>
             </div>
-            <div className="space-y-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
-                {searchResults.map((job) => (
-                    <div key={job.id} onClick={() => selectJob(job)} className="p-3 bg-white border border-neutral-200 rounded-brand hover:border-primary cursor-pointer transition-all group/item">
-                        <h5 className="text-sm font-semibold text-neutral-800 group-hover/item:text-primary">{job.title}</h5>
-                        <div className="flex justify-between mt-1 text-xs text-neutral-500"><span>{job.company}</span><span>{job.location}</span></div>
+            
+            {/* RESULTAT-LISTA MED FEEDBACK */}
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-1 custom-scrollbar min-h-[20px]">
+                
+                {/* LADDAR... */}
+                {isSearching && (
+                    <div className="text-center py-6">
+                        <div className="animate-spin w-5 h-5 border-2 border-primary border-t-transparent rounded-full mx-auto mb-2"></div>
+                        <p className="text-xs text-neutral-400 font-medium">Söker i Platsbanken...</p>
+                    </div>
+                )}
+
+                {/* INGA TRÄFFAR */}
+                {!isSearching && hasSearched && searchResults.length === 0 && (
+                    <div className="text-center py-6 text-neutral-400">
+                        <p className="text-xs font-medium">Inga jobb hittades.</p>
+                        <p className="text-[10px] mt-1">Prova att söka på en annan titel eller ort.</p>
+                    </div>
+                )}
+
+                {/* LISTA MED JOBB */}
+                {!isSearching && searchResults.map((job) => (
+                    <div key={job.id} onClick={() => selectJob(job)} className="p-3 bg-white border border-neutral-200 rounded-brand hover:border-primary cursor-pointer transition-all group/item hover:shadow-sm">
+                        <h5 className="text-sm font-semibold text-neutral-800 group-hover/item:text-primary line-clamp-1">{job.title}</h5>
+                        <div className="flex justify-between mt-1 text-xs text-neutral-500 font-medium">
+                            <span>{job.company}</span>
+                            <span className="flex items-center gap-1"><MapPin size={10} /> {job.location}</span>
+                        </div>
                     </div>
                 ))}
             </div>
@@ -118,25 +152,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ data, onChange, disa
         ) : (
           <textarea value={data.jobDescription || ''} onChange={(e) => onChange({ jobDescription: e.target.value, selectedJob: undefined })} disabled={disabled} placeholder="Klistra in texten här..." className="w-full h-28 bg-white border border-neutral-300 focus:border-primary focus:ring-1 focus:ring-primary rounded-brand p-3 text-sm resize-none outline-none transition-all" />
         )}
-      </div>
-
-      {/* SETTINGS */}
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-           <label className="text-[10px] font-bold uppercase text-neutral-400 mb-1 block ml-1">Språk</label>
-           <select value={data.language} onChange={(e) => onChange({ language: e.target.value as any })} disabled={disabled} className="w-full appearance-none bg-white border border-neutral-300 text-neutral-900 text-xs font-semibold uppercase rounded-brand px-3 py-2.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary cursor-pointer shadow-sm">
-                <option value="sv">Svenska</option>
-                <option value="en">🇬🇧 English</option>
-           </select>
-        </div>
-        <div>
-           <label className="text-[10px] font-bold uppercase text-neutral-400 mb-1 block ml-1">Ton</label>
-           <select value={data.tone} onChange={(e) => onChange({ tone: e.target.value as any })} disabled={disabled} className="w-full appearance-none bg-white border border-neutral-300 text-neutral-900 text-xs font-semibold uppercase rounded-brand px-3 py-2.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary cursor-pointer shadow-sm">
-                <option value="professional">👔 Professionell</option>
-                <option value="enthusiastic">🔥 Entusiastisk</option>
-                <option value="creative">🎨 Kreativ</option>
-           </select>
-        </div>
       </div>
     </div>
   );
