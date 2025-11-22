@@ -1,0 +1,28 @@
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/poppins/500.css";
+@import "@fontsource/poppins/600.css";
+@import "@fontsource/poppins/700.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    /* Brand Kit: Off-White Background #F7F7F7 */
+    @apply bg-neutral-50 text-neutral-900 font-sans antialiased;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    /* Brand Kit: Poppins for Headings */
+    @apply font-heading font-semibold text-neutral-800;
+  }
+}
+
+/* Custom Scrollbar för att matcha "Slate" */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { @apply bg-neutral-200 rounded-full; }
+::-webkit-scrollbar-thumb:hover { @apply bg-neutral-700; }
