@@ -3,7 +3,8 @@ import { Sparkles, ArrowRight, CheckCircle2, Zap, BarChart3, User, Check, FileTe
 import { InputSection } from './components/InputSection';
 import { ResultsView } from './components/ResultsView';
 import { ResultsSkeleton } from './components/ResultsSkeleton';
-import { ProgressStepper } from './components/ProgressStepper'; // <--- NY IMPORT
+import { ProgressStepper } from './components/ProgressStepper';
+import { DiagnosticPanel } from './components/DiagnosticPanel'; // <--- NY IMPORT
 import { analyzeApplication } from './lib/api';
 import { AnalysisRequest, AnalysisResult, AnalysisStatus } from './types';
 
@@ -24,37 +25,75 @@ export default function App() {
 
   const handleAnalyze = async () => {
     if (!requestData.cvFile || !requestData.jobDescription) return;
+    
     setStatus('analyzing');
     setError(null);
+    
     try {
+      console.log("=== STARTING ANALYSIS ===");
+      console.log("CV File:", requestData.cvFile?.name);
+      console.log("Job Description Length:", requestData.jobDescription.length);
+      console.log("Language:", requestData.language);
+      
       const result = await analyzeApplication(requestData as AnalysisRequest);
+      
+      console.log("=== ANALYSIS COMPLETE ===");
+      console.log("Score:", result.matchScore);
+      console.log("Summary:", result.summary);
+      
+      // EXTRA VALIDERING: Varna om scoren verkar orealistisk
+      if (result.matchScore < 30 && requestData.jobDescription.toLowerCase().includes('sjuksköterska')) {
+        console.warn("⚠️ VARNING: Låg score för vad som verkar vara en bra matchning!");
+        console.warn("Detta kan bero på PDF-problem eller AI-beteende.");
+        
+        // Visa varning till användaren men fortsätt ändå
+        setError(
+          `Analysen gav ${result.matchScore}% matchning, vilket verkar lågt. ` +
+          "Om du tror detta är felaktigt, kontrollera att CV:t är i text-format (inte scannat)."
+        );
+      }
+      
       setResult(result);
       setStatus('complete');
+      
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ett okänt fel inträffade");
+      console.error("=== ANALYSIS FAILED ===");
+      console.error(err);
+      
+      const errorMessage = err instanceof Error ? err.message : "Ett okänt fel inträffade";
+      
+      // Ge mer specifika felmeddelanden
+      let userFriendlyError = errorMessage;
+      
+      if (errorMessage.includes("PDF:en verkar vara tom")) {
+        userFriendlyError = "Din PDF kunde inte läsas. Är den scannad/bildbaserad? Prova att exportera den som text-PDF istället.";
+      } else if (errorMessage.includes("Empty response")) {
+        userFriendlyError = "AI-tjänsten svarade inte. Försök igen om ett ögonblick.";
+      } else if (errorMessage.includes("rate limit")) {
+        userFriendlyError = "För många förfrågningar. Vänta 1 minut och försök igen.";
+      }
+      
+      setError(userFriendlyError);
       setStatus('error');
     }
   };
 
   const isValid = !!(requestData.cvFile && requestData.jobDescription && requestData.jobDescription.length > 20);
 
-  // --- NY LOGIK: Räkna ut vilket steg användaren är på ---
+  // Räkna ut vilket steg användaren är på
   let currentStep = 1;
-  if (requestData.cvFile) currentStep = 2; // Har CV -> Gå till steg 2
-  if (requestData.cvFile && requestData.jobDescription) currentStep = 3; // Har båda -> Redo att analysera
-  if (result) currentStep = 4; // Har resultat -> Klart
-  // -------------------------------------------------------
+  if (requestData.cvFile) currentStep = 2;
+  if (requestData.cvFile && requestData.jobDescription) currentStep = 3;
+  if (result) currentStep = 4;
 
   return (
     <div className="min-h-screen flex flex-col bg-neutral-50 font-sans text-neutral-900 overflow-x-hidden">
       
       {/* HEADER */}
       <header className="sticky top-0 z-50 w-full bg-white/95 backdrop-blur-md border-b border-neutral-200/80 shadow-sm transition-all">
-        {/* Dekorativ Topp-linje */}
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-secondary to-primary" />
 
         <div className="max-w-7xl mx-auto px-6 h-24 flex items-center justify-between">
-          {/* LOGOTYP */}
           <div className="flex items-center gap-4 select-none cursor-pointer group" onClick={() => window.location.reload()}>
             <img 
               src="/logo.png" 
@@ -160,18 +199,16 @@ export default function App() {
         {/* WORKSPACE SECTION */}
         <div className="max-w-7xl mx-auto px-6 -mt-6 relative z-20">
           
-          {/* --- NYTT: Progress Stepper --- */}
+          {/* Progress Stepper */}
           <div className="mb-10 max-w-3xl mx-auto">
             <ProgressStepper currentStep={currentStep} />
           </div>
-          {/* ----------------------------- */}
 
           <div className="grid lg:grid-cols-12 gap-8 items-start">
             
             {/* VÄNSTER: INPUT */}
             <div className="lg:col-span-5 space-y-6">
                <div className="bg-white border border-neutral-200 rounded-2xl p-6 md:p-8 shadow-soft space-y-8 relative overflow-hidden">
-                  {/* Gradient Linje */}
                   <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-primary to-secondary" />
 
                   <div className="space-y-2 mb-6">
@@ -236,7 +273,6 @@ export default function App() {
                 <ResultsView result={result} />
               ) : (
                 <div className="h-full min-h-[600px] bg-white border border-neutral-200 rounded-2xl shadow-card flex flex-col items-center justify-center text-center p-12 relative overflow-hidden group">
-                  {/* Gradient Header */}
                   <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-secondary to-primary" />
                   
                   <div className="absolute inset-0 bg-[radial-gradient(#E6E6E6_1px,transparent_1px)] [background-size:24px_24px] opacity-60" />
@@ -261,6 +297,9 @@ export default function App() {
           </div>
         </div>
       </main>
+
+      {/* DIAGNOSTIC PANEL - NY KOMPONENT */}
+      <DiagnosticPanel cvFile={requestData.cvFile} />
     </div>
   );
 }

@@ -17,7 +17,7 @@ from app.services.job_engine import JobEngine
 from app.services.writer_engine import WriterEngine
 from app.core.config import settings
 
-# Utökad loggning för att se vad som händer
+# Konfigurera loggning
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("TailorAPI")
 
@@ -27,6 +27,7 @@ app = FastAPI(title=settings.PROJECT_NAME)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# CORS: Tillåt allt för utveckling
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -56,9 +57,9 @@ async def validate_file(file: UploadFile):
     if file.file.tell() > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="Filen är för stor (Max 10MB).")
     file.file.seek(0)
-    # Enkel MIME-check utan magic för att minska felkällor just nu
+    # Enkel check för att undvika onödiga fel
     if file.content_type != "application/pdf":
-         logger.warning(f"Varning: Filtyp är {file.content_type}, förväntat application/pdf")
+         logger.warning(f"Varning: Filtyp är {file.content_type}")
 
 @app.get("/")
 def read_root():
@@ -82,31 +83,26 @@ async def analyze_cv(
 ):
     await validate_file(file)
     
-    # Skapa en temporär fil och stäng den direkt så att andra processer kan läsa den
+    # Använd tempfile säkert
     fd, temp_path = tempfile.mkstemp(suffix=".pdf")
     os.close(fd)
     
     try:
-        # Skriv filinnehållet till tempfilen
+        # Skriv data till disken
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
         # Extrahera text
         cv_text = PDFEngine.extract_text(temp_path)
         
-        # DEBUG-LOGGNING: Se om vi faktiskt fick ut någon text
-        logger.info(f"📄 Extracted text length: {len(cv_text)} chars")
-        if len(cv_text) < 100:
-            logger.warning("⚠️ Varning: Väldigt lite text extraherades från PDF:en!")
-            logger.warning(f"Text preview: {cv_text[:50]}...")
-
         # Lägg till jobbannonsen i prompten
         full_context = cv_text
         if job_description:
             intro = "JOB DESCRIPTION (TARGET):" if language == "en" else "JOBBANNONS (MÅLBILD):"
             full_context += f"\n\n{'='*20}\n{intro}\n{job_description}\n{'='*20}"
 
-        # Anropa AI
+        # --- HÄR ÄR ÄNDRINGEN ---
+        # Vi anropar BARA AI:n. Ingen ScoringEngine som förstör poängen.
         analysis = ai_engine.analyze_cv(full_context, language=language)
         
         if isinstance(analysis, dict) and "error" in analysis:

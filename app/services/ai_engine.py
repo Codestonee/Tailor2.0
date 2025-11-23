@@ -13,7 +13,8 @@ class AIEngine:
     def __init__(self):
         self.model = genai.GenerativeModel(
             model_name=settings.MODEL_NAME,
-            generation_config={"response_mime_type": "application/json"}
+            # Låg temperatur för att den ska följa reglerna strikt
+            generation_config={"response_mime_type": "application/json", "temperature": 0.1}
         )
 
     def _clean_json_response(self, text: str) -> str:
@@ -26,37 +27,40 @@ class AIEngine:
         
         lang_cmd = "SWEDISH" if language == "sv" else "ENGLISH"
         
-        # Prompt som tvingar AI att agera som en människa, inte en ordräknare
+        # EN BETYDLIGT SMARTARE OCH STRIKTARE PROMPT
         prompt = f"""
         ROLE:
-        You are a Senior Talent Acquisition Specialist. Your goal is to find the BEST candidate, not to reject people based on missing buzzwords.
+        You are a Senior Tech Recruiter. You evaluate candidates based on COMPENTENCE, not just keywords.
 
         TASK:
-        Evaluate the candidate's CV against the Job Description provided below.
+        Analyze the CV against the Job Description provided below.
 
-        SCORING LOGIC (FOLLOW STRICTLY):
-        1. **Core Role Match:** Does the candidate have the right job title (e.g., Nurse/Sjuksköterska)? If YES -> Score MUST start at 70%.
-        2. **Experience:** Do they have relevant years of experience? If YES -> Add 10-20%.
-        3. **Skills:** Do they have the *capability* to do the job, even if exact keywords differ? (e.g., "Patient care" vs "Omvårdnad"). If YES -> Treat as match.
-        4. **Penalty:** Only lower the score if CRITICAL mandatory requirements (like a license or specific language) are explicitly missing.
+        SCORING RULES (FOLLOW STRICTLY):
+        1. **ROLE MATCH:** If the candidate HAS the job title requested (e.g. Nurse/Sjuksköterska), the score MUST start at 70.
+        2. **EXPERIENCE:** If they have relevant years of experience, add points.
+        3. **SEMANTIC MATCH:** Understand that "Omvårdnad" = "Vård". Do NOT penalize for synonyms.
+        4. **BUZZWORDS:** Do NOT lower the score just because generic buzzwords (like "chatt", "detaljer") are missing.
 
         TONE RULES:
-        - Address the candidate as "Du" (You).
-        - NEVER use their name (e.g., "Maria").
-        - Be encouraging. Instead of "You lack...", say "You could highlight...".
+        - Address the user as "Du" (You).
+        - NEVER use the candidate's name (e.g. "Maria"). Use "Du" instead.
+        - Be professional but encouraging.
 
         INPUT DATA:
-        {full_text[:40000]} 
+        {full_text[:50000]} 
         
         OUTPUT FORMAT (JSON):
         {{
-            "candidate_info": {{ "name": "Extract", "email": "Extract", "current_role": "Extract" }},
-            "summary": "Start with 'Du är en...'. Summarize why they are a good fit.",
-            "skills": {{ "hard_skills": ["Skill 1", "Skill 2"], "soft_skills": ["Skill 1", "Skill 2"] }},
-            "score": Integer 0-100 (Follow Scoring Logic above!),
-            "strengths": ["Strong point 1", "Strong point 2"],
-            "weaknesses": ["Missing requirement 1", "Area for improvement"],
-            "improvement_plan": ["Actionable tip 1", "Actionable tip 2"]
+            "candidate_info": {{ "name": "Extract Name", "email": "Extract Email", "current_role": "Extract Role" }},
+            "summary": "Start with 'Du är en...'. Summarize their fit for this specific role.",
+            "skills": {{
+                "hard_skills": ["Relevant Hard Skill 1", "Hard Skill 2"],
+                "soft_skills": ["Soft Skill 1", "Soft Skill 2"]
+            }},
+            "score": Integer 0-100 (Follow SCORING RULES above!),
+            "strengths": ["Du har...", "Din erfarenhet av..."],
+            "weaknesses": ["Du saknar erfarenhet av...", "Det framgår inte om du..."],
+            "improvement_plan": ["Lägg till...", "Förtydliga..."]
         }}
         
         Respond in {lang_cmd}.
@@ -78,6 +82,6 @@ class AIEngine:
             except Exception as e:
                 logger.warning(f"AI Error (Attempt {attempt+1}): {e}")
                 if attempt < max_retries - 1:
-                    time.sleep((base_delay * (2 ** attempt)) + random.uniform(0, 1))
+                    time.sleep(2)
                 else:
                     return {"error": "Service unavailable."}
