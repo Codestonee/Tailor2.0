@@ -1,20 +1,26 @@
-# Ignorera miljövariabler (VIKTIGT!)
-.env
-.env.local
-
-# Python
-__pycache__/
-*.py[cod]
+# --- Beroenden (LADDA ALDRIG UPP DESSA) ---
+node_modules/
 venv/
+.venv/    <-- LÄGG TILL DENNA!
+__pycache__/
 .pytest_cache/
 
-# Docker
-.dockerignore
+# --- Byggfiler ---
+dist/
+build/
+*.egg-info/
 
-# OS
+# --- Miljövariabler & Hemligheter (VIKTIGT!) ---
+.env
+.env.local
+.env.*.local
+
+# --- Systemfiler ---
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
 
-# Tailor specifika
-temp_*
-*.pdf
+# --- Loggar ---
+logs/
+*.log

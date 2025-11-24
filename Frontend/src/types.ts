@@ -1,4 +1,3 @@
-// Lägg till detta i slutet av filen
 export interface JobResult {
   id: string;
   title: string;
@@ -8,16 +7,14 @@ export interface JobResult {
   url: string;
 }
 
-// Uppdatera AnalysisRequest om du vill spara vilket jobb som valdes (frivilligt men bra)
 export interface AnalysisRequest {
-  cvFile: File | undefined; // Ändrad till undefined för att matcha InputSection
+  cvFile: File | undefined;
   jobDescription: string;
   language: 'sv' | 'en';
-  tone: 'formal' | 'casual' | 'creative';
-  selectedJob?: JobResult; // Nytt fält för att hålla koll på valt jobb
+  tone: 'professional' | 'casual' | 'creative';
+  selectedJob?: JobResult;
 }
 
-// ... (resten av filen kan vara kvar som den är, se till att Improvement etc finns kvar)
 export interface Improvement {
   type: 'missing_skill' | 'formatting' | 'phrasing';
   description: string;
@@ -40,4 +37,4 @@ export interface AnalysisResult {
   summary: string;
 }
 
-export type AnalysisStatus = 'idle' | 'uploading' | 'analyzing' | 'complete' | 'error';
+export type AnalysisStatus = 'idle' | 'analyzing' | 'complete' | 'error';

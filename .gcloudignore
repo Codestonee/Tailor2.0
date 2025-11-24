@@ -1,7 +1,0 @@
-.git
-.gitignore
-__pycache__
-venv
-Frontend/node_modules
-Frontend/.next
-Frontend/dist

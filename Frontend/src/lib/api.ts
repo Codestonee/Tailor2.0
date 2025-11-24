@@ -1,116 +1,91 @@
-import { AnalysisRequest, AnalysisResult, JobResult } from '../types';
+import { AnalysisResult, JobResult } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// FIX: Vi bygger URL:en explicit så att /api/v1 alltid kommer med
+const ENV_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Ta bort ev. avslutande slash från ENV_URL och lägg till /api/v1
+const API_BASE = `${ENV_URL.replace(/\/$/, '')}/api/v1`;
 
-export const analyzeApplication = async (request: AnalysisRequest): Promise<AnalysisResult> => {
-  
-  if (!request.cvFile) {
-    throw new Error("Ingen fil vald.");
+export interface APIError {
+  message: string;
+  status: number;
+}
+
+class APIClient {
+  private async handleError(response: Response): Promise<never> {
+    let errorMessage = `API Error: ${response.statusText}`;
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.detail || errorData.message || errorMessage;
+    } catch {
+      // Kunde inte parsa JSON, behåll standardmeddelandet
+    }
+    
+    throw {
+      message: errorMessage,
+      status: response.status
+    } as APIError;
   }
 
-  // Förbered data för analys
-  const formData = new FormData();
-  formData.append('file', request.cvFile);
-  formData.append('job_description', request.jobDescription);
-  formData.append('language', request.language);
+  async analyzeCV(
+    file: File,
+    jobDescription: string,
+    language: string
+  ): Promise<AnalysisResult> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('job_description', jobDescription);
+    formData.append('language', language);
 
-  try {
-    console.log("🤖 Skickar till AI för analys...");
-    
-    // STEG 1: Gör analys-anropet direkt (inget debug-steg)
-    const analyzeResponse = await fetch(`${API_BASE_URL}/analyze`, {
-      method: 'POST',
-      body: formData,
-    });
+    console.log(`Sending request to: ${API_BASE}/analyze/cv`);
 
-    if (!analyzeResponse.ok) {
-      const errorData = await analyzeResponse.json();
-      console.error("❌ Backend error:", errorData);
-      throw new Error(errorData.detail || 'Analysen misslyckades.');
+    try {
+      const response = await fetch(`${API_BASE}/analyze/cv`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) await this.handleError(response);
+      
+      const data = await response.json();
+      
+      return {
+        matchScore: data.match_score || data.score || 0,
+        scoreBreakdown: {
+          technical: data.skill_score || 0,
+          experience: data.experience_score || 0,
+          softSkills: data.soft_skill_score || 0,
+        },
+        summary: data.summary || '',
+        keywordsFound: data.matched_skills || [],
+        keywordsMissing: data.missing_skills || [],
+        improvements: (data.improvement_plan || data.recommendations || []).map((r: string) => ({
+          type: 'suggestion',
+          description: 'Förbättring',
+          suggestion: r,
+        })),
+        coverLetter: data.cover_letter || 'Generering misslyckades',
+      };
+    } catch (error) {
+      console.error("Fetch error:", error);
+      throw error;
     }
-
-    const analysisData = await analyzeResponse.json();
-    console.log("📊 Analys mottagen:", analysisData);
-
-    // STEG 2: Generera personligt brev
-    console.log("✍️ Genererar personligt brev...");
-    const companyName = "Arbetsgivaren"; 
-    
-    const letterFormData = new FormData();
-    letterFormData.append('file', request.cvFile);
-    letterFormData.append('job_description', request.jobDescription);
-    letterFormData.append('company', companyName);
-    letterFormData.append('language', request.language);
-    letterFormData.append('tone', request.tone);
-
-    const letterResponse = await fetch(`${API_BASE_URL}/generate-letter`, {
-      method: 'POST',
-      body: letterFormData,
-    });
-
-    let letterData = { letter: "Kunde inte generera brev." };
-    if (letterResponse.ok) {
-      letterData = await letterResponse.json();
-    } else {
-      console.warn("⚠️ Brevgenerering misslyckades, men fortsätter ändå");
-    }
-
-    // STEG 3: Mappa till frontend-format
-    let missingKeywords: string[] = [];
-    const improvements = analysisData.improvement_plan || [];
-    
-    // Parsa ut saknade nyckelord om backend lagt in dem
-    const firstImprovement = improvements[0] || "";
-    if (firstImprovement.includes("Saknar nyckelord:") || firstImprovement.includes("Missing keywords:")) {
-        const kwString = firstImprovement.split(":")[1] || "";
-        missingKeywords = kwString.split(",").map((s: string) => s.trim()).filter((s: string) => s.length > 0);
-        improvements.shift(); // Ta bort raden så den inte visas dubbelt
-    }
-
-    // Skapa resultatet
-    const result: AnalysisResult = {
-      matchScore: analysisData.score,
-      scoreBreakdown: {
-        technical: analysisData.score, // Använd totalscoren som bas
-        softSkills: Math.min(100, analysisData.score + 5),
-        experience: Math.max(0, analysisData.score - 5)
-      },
-      summary: analysisData.summary,
-      keywordsFound: analysisData.skills?.hard_skills || [], 
-      keywordsMissing: missingKeywords,
-      improvements: improvements.map((item: string) => ({
-        type: 'missing_skill',
-        description: 'Förslag',
-        suggestion: item
-      })),
-      coverLetter: letterData.letter
-    };
-
-    return result;
-
-  } catch (error) {
-    console.error("❌ API Error:", error);
-    throw error;
   }
-};
 
-export const searchJobs = async (query: string, location: string = ""): Promise<JobResult[]> => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/search-jobs`, {
+  async searchJobs(
+    query: string,
+    location: string = '',
+    limit: number = 10
+  ): Promise<JobResult[]> {
+    const response = await fetch(`${API_BASE}/jobs/search`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ query, location }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, location, limit }),
     });
 
-    if (!response.ok) {
-      throw new Error('Kunde inte hämta jobb');
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error("Job Search Error:", error);
-    return [];
+    if (!response.ok) await this.handleError(response);
+    const data = await response.json();
+    return data.jobs || [];
   }
-};
+}
+
+export const api = new APIClient();

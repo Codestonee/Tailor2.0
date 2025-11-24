@@ -1,0 +1,18 @@
+# Använd Node.js
+FROM node:20-alpine
+
+# Sätt arbetskatalog
+WORKDIR /app
+
+# Kopiera package.json och installera beroenden
+COPY package.json package-lock.json ./
+RUN npm install
+
+# Kopiera resten av koden
+COPY . .
+
+# Exponera porten
+EXPOSE 5173
+
+# Starta utvecklingsservern
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

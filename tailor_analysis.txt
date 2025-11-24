@@ -1,0 +1,8 @@
+Tailor Project Analysis and Recommendations
+
+1. Repo issues: truncated files, missing logic.
+2. Backend: restore files from overhaul spec, fix pydantic.
+3. Frontend: replace truncated components, align api.
+4. Logging: remove emojis for windows.
+5. Run uvicorn properly.
+6. Recommended rebuild steps...
