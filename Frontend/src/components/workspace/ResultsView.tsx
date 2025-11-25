@@ -4,8 +4,8 @@ import { AnalysisResult } from '../../types';
 import { MatchScore } from '../results/MatchScore';
 import { ATSScore } from '../results/ATSScore';
 import { SkillsAnalysis } from '../results/SkillsAnalysis';
-import { Improvements } from '../results/Improvements';
-import { Button } from '../common/Button';
+import { Improvements } from '../results/improvements';
+import { Button } from '../common/button';
 
 interface ResultsViewProps {
   result: AnalysisResult;
