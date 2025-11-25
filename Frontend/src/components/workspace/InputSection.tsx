@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { UploadCloud, FileText, X, Search, MapPin } from 'lucide-react';
 import { AnalysisRequest, JobResult } from '../../types';
 import { api } from '../../lib/api';
-import { Button } from '../common/Button';
+import { Button } from '../common/button';
 
 interface InputSectionProps {
   data: Partial<AnalysisRequest>;

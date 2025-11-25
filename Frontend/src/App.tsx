@@ -1,21 +1,14 @@
 import React, { useState } from 'react';
 
-// Importera typsnitt här istället för i CSS
-import "@fontsource/inter/400.css";
-import "@fontsource/inter/500.css";
-import "@fontsource/inter/600.css";
-import "@fontsource/poppins/500.css";
-import "@fontsource/poppins/600.css";
-import "@fontsource/poppins/700.css";
 
 import { ArrowRight, Sparkles, CheckCircle2 } from 'lucide-react';
-import { Header } from './components/layout/Header';
-import { Footer } from './components/layout/Footer';
+import { Header } from './components/layout/header';
+import { Footer } from './components/layout/footer';
 import { HeroSection } from './components/layout/HeroSection';
 import { InputSection } from './components/workspace/InputSection';
 import { ResultsSkeleton } from './components/workspace/ResultsSkeleton';
 import { ResultsView } from './components/workspace/ResultsView';
-import { Button } from './components/common/Button';
+import { Button } from './components/common/button';
 import { useAnalysisHook } from './hooks/useAnalysis';
 import { AnalysisRequest } from './types';
 import { storageService } from './services/storage';
