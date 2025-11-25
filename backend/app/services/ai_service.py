@@ -2,16 +2,24 @@ import google.generativeai as genai
 import json
 import re
 import logging
-from typing import Dict
+from typing import Dict, Optional
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class AIService:
     """Gemini API integration with robust error handling"""
-    
+
     def __init__(self):
-        genai.configure(api_key=settings.CLEAN_API_KEY)
+        self.model: Optional[genai.GenerativeModel] = None
+
+        try:
+            api_key = settings.CLEAN_API_KEY
+        except ValueError:
+            logger.warning("Gemini API key is not configured; AI features will return fallbacks")
+            return
+
+        genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel(
             model_name=settings.MODEL_NAME,
             generation_config={
@@ -41,18 +49,17 @@ class AIService:
         Language: {lang}
         """
         
+        if not self.model:
+            logger.info("AI model unavailable; returning fallback analysis")
+            return self._fallback_response()
+
         try:
             response = self.model.generate_content(prompt)
             return self._parse_json(response.text)
         except Exception as e:
             logger.error(f"AI analysis failed: {e}")
             # Fallback empty structure to prevent crash
-            return {
-                "candidate_info": {"name": "Unknown", "email": ""},
-                "summary": "Analysis failed due to AI error.",
-                "skills": {"hard_skills": [], "soft_skills": []},
-                "score": 0
-            }
+            return self._fallback_response()
     
     def _parse_json(self, text: str) -> Dict:
         """Parse JSON from response"""
@@ -60,3 +67,11 @@ class AIService:
         if text.startswith('```'):
             text = re.sub(r'^```json\s*|\s*```$', '', text, flags=re.MULTILINE)
         return json.loads(text)
+
+    def _fallback_response(self) -> Dict:
+        return {
+            "candidate_info": {"name": "Unknown", "email": ""},
+            "summary": "Analysis failed due to AI error.",
+            "skills": {"hard_skills": [], "soft_skills": []},
+            "score": 0
+        }

@@ -9,15 +9,14 @@ import logging
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from contextlib import asynccontextmanager
 
 from app.core.config import settings
 from app.core.logging_config import logger
 from app.core.security import setup_cors, setup_security_headers, setup_error_handlers
-from app.api.routes import router, health_router
+from app.api.routes import router, health_router, limiter as api_limiter
 
 # ============================================================================
 # LIFESPAN (STARTUP & SHUTDOWN)
@@ -75,8 +74,8 @@ setup_cors(app, settings.CORS_ORIGINS)
 setup_security_headers(app)
 
 # 3. Rate Limiting
-limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
+app.state.limiter = api_limiter
+app.add_middleware(SlowAPIMiddleware)
 
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
