@@ -1,9 +1,12 @@
-from fastapi import APIRouter, Depends, Request, File, UploadFile, Form, HTTPException
+import logging
+import os
 from typing import Optional, List
+
+from fastapi import APIRouter, Depends, Request, File, UploadFile, Form, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-import logging
 
+from app.core.config import settings
 from app.services.pdf_service import PDFService
 from app.services.matching_service import MatchingService
 from app.services.ai_service import AIService
@@ -70,6 +73,13 @@ async def analyze_cv(
         # Validate inputs
         if not InputValidator.validate_file_type(file.filename):
             raise FileError("Endast PDF-filer är tillåtna")
+
+        file.file.seek(0, os.SEEK_END)
+        file_size = file.file.tell()
+        file.file.seek(0)
+
+        if not InputValidator.validate_file_size(file_size, settings.MAX_FILE_SIZE):
+            raise FileError(f"Filen är för stor. Max {int(settings.MAX_FILE_SIZE / 1024 / 1024)} MB tillåten")
         
         # Extract and validate CV text
         import tempfile
@@ -85,10 +95,12 @@ async def analyze_cv(
             
             cv_text = PDFService.extract_text(temp_path)
             cv_text = InputValidator.sanitize_text(cv_text)
-            
+
             # Validate CV text (Svensk anpassning)
             if len(cv_text) < 50:
                  raise ValidationError("Kunde inte läsa text från filen. Är det en bild?")
+
+            InputValidator.validate_cv_text(cv_text)
             
             logger.info(f"Extracted {len(cv_text)} characters from PDF")
             
@@ -98,7 +110,8 @@ async def analyze_cv(
             # If job description provided, do matching too
             if job_description:
                 job_description = InputValidator.sanitize_text(job_description)
-                
+                InputValidator.validate_job_description(job_description)
+
                 match_result = matching_service.match_cv_to_job(cv_text, job_description)
                 analysis['match_score'] = match_result['overall_score']
                 analysis['matched_skills'] = match_result['matched_skills']
