@@ -1,6 +1,9 @@
+Inga emojis eller specialtecken som kraschar Windows-terminalen.
+"""
+
+import os
 """
 app/main.py - WINDOWS SAFE VERSION
-===================================
 Inga emojis eller specialtecken som kraschar Windows-terminalen.
 """
 
@@ -9,16 +12,14 @@ import logging
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from contextlib import asynccontextmanager
 
 from app.core.config import settings
 from app.core.logging_config import logger
 from app.core.security import setup_cors, setup_security_headers, setup_error_handlers
-from app.api.routes import router, health_router
-from app.api.endpoints.generation import router as generation_router
+from app.api.routes import router, health_router, limiter as api_limiter
 
 # ============================================================================
 # LIFESPAN (STARTUP & SHUTDOWN)
@@ -31,7 +32,7 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 50)
     logger.info(f"[START] {settings.PROJECT_NAME} v2.0.0 Starting")
     logger.info("=" * 50)
-
+    
     # Check API key
     try:
         _ = settings.CLEAN_API_KEY
@@ -39,19 +40,19 @@ async def lifespan(app: FastAPI):
     except ValueError:
         logger.error("[ERR] GEMINI_API_KEY not configured")
         logger.error("Please set GEMINI_API_KEY in .env file")
-
+    
     # Log configuration
     logger.info(f"Debug mode: {settings.DEBUG}")
     logger.info(f"CORS origins: {settings.CORS_ORIGINS}")
     logger.info(f"Rate limit: {settings.RATE_LIMIT} requests/minute")
     logger.info(f"Max file size: {settings.MAX_FILE_SIZE / 1024 / 1024:.1f} MB")
-
+    
     logger.info("[OK] Tailor 2.0 ready to receive requests")
     logger.info("API docs available at /api/docs")
     logger.info("=" * 50)
-
+    
     yield  # Här körs applikationen
-
+    
     # --- SHUTDOWN ---
     logger.info("[STOP] Tailor 2.0 shutting down")
 
@@ -76,8 +77,8 @@ setup_cors(app, settings.CORS_ORIGINS)
 setup_security_headers(app)
 
 # 3. Rate Limiting
-limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
+app.state.limiter = api_limiter
+app.add_middleware(SlowAPIMiddleware)
 
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
@@ -101,29 +102,29 @@ setup_error_handlers(app)
 async def log_requests(request: Request, call_next):
     """Log all requests with timing"""
     import time
-
+    
     start_time = time.time()
-
+    
     # Log request (Using ASCII arrows)
     logger.debug(f">> {request.method} {request.url.path} from {request.client}")
-
+    
     try:
         response = await call_next(request)
-
+        
         # Calculate duration
         duration = time.time() - start_time
-
+        
         # Log response
         logger.debug(
             f"<< {request.method} {request.url.path} "
             f"{response.status_code} ({duration:.3f}s)"
         )
-
+        
         # Add timing header
         response.headers["X-Process-Time"] = str(duration)
-
+        
         return response
-
+    
     except Exception as e:
         logger.error(
             f"Request failed: {request.method} {request.url.path}",
@@ -140,8 +141,6 @@ app.include_router(health_router)
 
 # API routes (with /api/v1 prefix)
 app.include_router(router)
-app.include_router(generation_router)
-
 
 # ============================================================================
 # ROOT ENDPOINTS
@@ -182,7 +181,7 @@ async def not_found_handler(request: Request, exc):
 
 if __name__ == "__main__":
     import uvicorn
-
+    
     uvicorn.run(
         app,
         host="0.0.0.0",
