@@ -1,6 +1,9 @@
+Inga emojis eller specialtecken som kraschar Windows-terminalen.
+"""
+
+import os
 """
 app/main.py - WINDOWS SAFE VERSION
-===================================
 Inga emojis eller specialtecken som kraschar Windows-terminalen.
 """
 
