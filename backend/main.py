@@ -9,9 +9,6 @@ from pydantic import BaseModel
 import google.generativeai as genai
 from dotenv import load_dotenv
 
-# IMPORTERA DINA PROMPTS HÄR
-from prompts import CareerPrompts
-
 load_dotenv()
 
 GENAI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -62,10 +59,15 @@ class RoastRequest(BaseModel):
 class PitchRequest(BaseModel):
     pitch_text: str
 
-# --- Helper ---
 def clean_json_response(text):
+    # Tar bort markdown-block (```json ... ```)
     cleaned = re.sub(r"```json\s*", "", text)
     cleaned = re.sub(r"```\s*$", "", cleaned)
+    # Tar bort eventuell text före/efter JSON-klamrar
+    start = cleaned.find('{')
+    end = cleaned.rfind('}') + 1
+    if start != -1 and end != 0:
+        cleaned = cleaned[start:end]
     return cleaned.strip()
 
 # --- Endpoints ---
@@ -74,60 +76,88 @@ def clean_json_response(text):
 def read_root():
     return {"status": "Tailor Backend is running"}
 
-# 1. ANALYSERA CV
 @app.post("/api/v1/cv/analyze_text")
 async def analyze_text(request: AnalysisRequest):
     if not GENAI_API_KEY:
         raise HTTPException(status_code=500, detail="API-nyckel saknas.")
 
-    # HÄMTA PROMPT FRÅN CENTRAL FIL
-    prompt = CareerPrompts.cv_analysis(request.cv_text, request.job_description)
-
+    prompt = f"""
+    Agera som en expert rekryterare. Analysera följande CV mot jobbannonsen.
+    
+    JOBBANNONS: {request.job_description[:2000]}...
+    CV: {request.cv_text[:4000]}...
+    
+    Svara ENDAST med giltig JSON enligt denna struktur (inga extra ord):
+    {{
+        "matchScore": 50,
+        "atsScore": 50,
+        "matchedSkills": ["skill1", "skill2"],
+        "missingSkills": ["skill3"],
+        "summary": "Kort sammanfattning...",
+        "improvements": [
+            {{
+                "id": "1",
+                "title": "Titel",
+                "explanation": "Text...",
+                "example": "Exempel...",
+                "impactScore": 5
+            }}
+        ]
+    }}
+    """
     try:
         response = model.generate_content(prompt)
         cleaned_text = clean_json_response(response.text)
+        # Testa att parsa för att se om det är giltigt
         json_data = json.loads(cleaned_text)
+        
+        # SÄKERHETSKOLL: Se till att alla fält finns
+        if "matchScore" not in json_data: json_data["matchScore"] = 50
+        if "atsScore" not in json_data: json_data["atsScore"] = 50
+        if "matchedSkills" not in json_data: json_data["matchedSkills"] = []
+        if "missingSkills" not in json_data: json_data["missingSkills"] = []
+        if "improvements" not in json_data: json_data["improvements"] = []
+        if "summary" not in json_data: json_data["summary"] = "Analysen kunde inte sammanfattas."
+        
         return json_data 
     except Exception as e:
-        print(f"Fel vid analys: {e}")
-        raise HTTPException(status_code=500, detail=f"Kunde inte analysera data: {str(e)}")
+        print(f"Analysfel: {e}")
+        # Fallback-data om AI:n misslyckas, så appen inte kraschar
+        return {
+            "matchScore": 0,
+            "atsScore": 0,
+            "matchedSkills": [],
+            "missingSkills": [],
+            "summary": "Kunde inte analysera just nu. Försök igen.",
+            "improvements": []
+        }
 
-# 2. GENERERA PERSONLIGT BREV
 @app.post("/api/v1/generate/create")
 async def generate_cover_letter(request: CoverLetterRequest):
-    # HÄMTA PROMPT FRÅN CENTRAL FIL
-    prompt = CareerPrompts.cover_letter(request.cv_text, request.job_description)
-
+    prompt = f"Skriv personligt brev. CV: {request.cv_text[:2000]}. Jobb: {request.job_description[:2000]}"
     try:
         response = model.generate_content(prompt)
         return {"content": response.text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# 3. SÖK JOBB (SMART VERSION)
 @app.post("/api/v1/jobs/search")
 async def search_jobs(request: JobSearchRequest):
     url = "https://jobsearch.api.jobtechdev.se/search"
     search_query = request.query
 
-    if request.cv_text and (not search_query or search_query.lower() == "jobb"):
-        print("Använder AI för att hitta sökord från CV...")
-        
-        # HÄMTA PROMPT FRÅN CENTRAL FIL
-        extraction_prompt = CareerPrompts.extract_search_terms(request.cv_text)
-        
+    if request.cv_text and (not search_query or search_query.lower() == "jobb" or search_query == ""):
         try:
+            extraction_prompt = f"Läs CV och ge EN yrkestitel på svenska att söka på. CV: {request.cv_text[:2000]}"
             ai_resp = model.generate_content(extraction_prompt)
             search_query = clean_json_response(ai_resp.text)
-            print(f"AI hittade söktermen: {search_query}")
-        except Exception as e:
-            print(f"Kunde inte extrahera sökord: {e}")
+        except Exception:
             search_query = "jobb"
 
     if not search_query:
         search_query = "jobb"
 
-    params = {"q": search_query, "limit": request.limit, "sort": "relevance"}
+    params = {"q": f"{search_query} {request.location}", "limit": request.limit, "sort": "relevance"}
     headers = {"accept": "application/json"}
 
     try:
@@ -147,59 +177,31 @@ async def search_jobs(request: JobSearchRequest):
     except Exception:
         return {"jobs": []}
 
-# 4. INTERVJU-SIMULATOR
 @app.post("/api/v1/interview/chat")
 async def interview_chat(request: InterviewRequest):
-    if not GENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="API-nyckel saknas.")
-
-    role_description = request.job_description if request.job_description else request.custom_role
-    
-    # HÄMTA PROMPT FRÅN CENTRAL FIL (I två steg)
-    system_instr = CareerPrompts.interview_system_instruction(role_description, request.cv_text)
-    full_prompt = CareerPrompts.construct_interview_prompt(system_instr, request.history)
-
+    system_prompt = f"Du är rekryterare. Roll: {request.job_description}. CV: {request.cv_text}. Svara JSON: {{'text': '...', 'scoreImpact': 0}}"
+    full_prompt = system_prompt + "\nHISTORIK: " + str(request.history)
     try:
         response = model.generate_content(full_prompt)
-        cleaned_text = clean_json_response(response.text)
-        return json.loads(cleaned_text)
-    except Exception as e:
-        print(f"Intervjufel: {e}")
-        return {
-            "text": "Ursäkta, kan du utveckla det där lite mer?",
-            "scoreImpact": 0
-        }
+        return json.loads(clean_json_response(response.text))
+    except:
+        return {"text": "Berätta mer?", "scoreImpact": 0}
 
-# 5. ROAST MY CV
 @app.post("/api/v1/roast/create")
 async def roast_cv(request: RoastRequest):
-    if not GENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="API-nyckel saknas.")
-
-    # HÄMTA PROMPT FRÅN CENTRAL FIL
-    prompt = CareerPrompts.roast_cv(request.cv_text)
-
     try:
-        response = model.generate_content(prompt)
+        response = model.generate_content(f"Roasta CV hårt: {request.cv_text[:4000]}")
         return {"content": response.text}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"content": "Kunde inte roasta just nu."}
 
-# 6. ELEVATOR PITCH
 @app.post("/api/v1/pitch/evaluate")
 async def evaluate_pitch(request: PitchRequest):
-    if not GENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="API-nyckel saknas.")
-
-    # HÄMTA PROMPT FRÅN CENTRAL FIL
-    prompt = CareerPrompts.evaluate_pitch(request.pitch_text)
-
     try:
-        response = model.generate_content(prompt)
-        cleaned = clean_json_response(response.text)
-        return json.loads(cleaned)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        response = model.generate_content(f"Utvärdera pitch, ge JSON (score, feedback, improved_version): {request.pitch_text}")
+        return json.loads(clean_json_response(response.text))
+    except:
+        return {"score": 0, "feedback": "Fel vid analys.", "improved_version": ""}
 
 if __name__ == "__main__":
     import uvicorn

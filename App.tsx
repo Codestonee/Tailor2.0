@@ -1,38 +1,42 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, Suspense } from 'react';
 import { AppStage, UserState, Job, AppView } from './types';
 import Hero from './components/Hero';
 import FileUpload from './components/FileUpload';
 import JobSelector from './components/JobSelector';
-import AnalysisDashboard from './components/AnalysisDashboard';
 import AppHeader from './components/AppHeader';
 import Mascot from './components/Mascot';
-import SalaryCalculator from './components/SalaryCalculator';
-import About from './components/About';
-import InterviewPrep from './components/InterviewPrep';
-import RoastMyCV from './components/RoastMyCV';
-import CareerGames from './components/CareerGames';
+import ErrorBoundary from './components/ErrorBoundary';
 import { analyzeApplication } from './services/geminiService';
 import { motion, AnimatePresence } from 'framer-motion';
 import { handleAPIError } from './src/utils/errorhandling';
+import { useLocalStorage } from './src/hooks/useLocalStorage';
+import { useAnalytics } from './src/hooks/useAnalytics';
 
-// --- Loading Text Component (Personligare texter) ---
+const AnalysisDashboard = React.lazy(() => import('./components/AnalysisDashboard'));
+const SalaryCalculator = React.lazy(() => import('./components/SalaryCalculator'));
+const About = React.lazy(() => import('./components/About'));
+const InterviewPrep = React.lazy(() => import('./components/InterviewPrep'));
+const RoastMyCV = React.lazy(() => import('./components/RoastMyCV'));
+const CareerGames = React.lazy(() => import('./components/CareerGames'));
+
+const LoadingFallback = () => (
+  <div className="flex items-center justify-center min-h-[50vh]">
+    <div className="w-16 h-16 border-4 border-ocean border-t-transparent rounded-full animate-spin"></div>
+  </div>
+);
+
 const LoadingText = () => {
   const [textIndex, setTextIndex] = useState(0);
-  
-  // MER MÄNSKLIGA TEXTER
   const texts = [
-    "Läser igenom din erfarenhet...",
-    "Hmm, intressant profil...",
-    "Letar efter den röda tråden...",
-    "Jämför med vad arbetsgivaren söker...",
-    "Formulerar några skarpa tips...",
-    "Putsar på detaljerna..."
+    "Läser igenom ditt CV...",
+    "Analyserar jobbannonsen...",
+    "Identifierar nyckelord...",
+    "Matchar kompetenser...",
+    "Slutställer rapport..."
   ];
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setTextIndex((prev) => (prev + 1) % texts.length);
-    }, 2000); // Lite långsammare byte för att hinna läsa
+    const interval = setInterval(() => setTextIndex((prev) => (prev + 1) % texts.length), 2000);
     return () => clearInterval(interval);
   }, []);
 
@@ -54,18 +58,19 @@ const LoadingText = () => {
 };
 
 const App: React.FC = () => {
-  const [currentView, setCurrentView] = useState<AppView>(AppView.HOME);
-  const [stage, setStage] = useState<AppStage>(AppStage.LANDING);
-  const [state, setState] = useState<UserState>({
+  const [currentView, setCurrentView] = useLocalStorage<AppView>('tailor_view', AppView.HOME);
+  const [stage, setStage] = useLocalStorage<AppStage>('tailor_stage', AppStage.LANDING);
+  const [state, setState] = useLocalStorage<UserState>('tailor_state', {
     cvText: '',
     cvFileName: '',
     selectedJob: null,
     analysis: null,
     generatedCoverLetter: null
   });
+  
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  
+  const { trackEvent } = useAnalytics();
   const uploadRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -85,198 +90,171 @@ const App: React.FC = () => {
     }
   }, [isDarkMode]);
 
-  const toggleTheme = () => setIsDarkMode(!isDarkMode);
+  const toggleTheme = () => {
+    setIsDarkMode(!isDarkMode);
+    trackEvent('toggle_theme');
+  };
 
   const handleNavigate = (view: AppView) => {
     setCurrentView(view);
+    trackEvent('navigate', { view });
   };
 
   const handleFileLoaded = (text: string, fileName: string) => {
     setState(prev => ({ ...prev, cvText: text, cvFileName: fileName }));
     setStage(AppStage.JOB_SELECT);
+    trackEvent('file_upload');
   };
 
   const handleJobSelected = async (job: Job) => {
     setState(prev => ({ ...prev, selectedJob: job }));
     setStage(AppStage.ANALYZING);
     setIsAnalyzing(true);
+    trackEvent('analyze_start');
 
     try {
-      await new Promise(r => setTimeout(r, 2500)); // Lite längre för känslan
+      await new Promise(r => setTimeout(r, 1500)); 
       
       const analysis = await analyzeApplication(state.cvText, job.description);
+      
+      // Check if analysis is valid
+      if (!analysis || typeof analysis.matchScore !== 'number') {
+        throw new Error("Ojdå, AI:n kunde inte analysera detta jobb. Försök igen.");
+      }
+
       setState(prev => ({ ...prev, analysis }));
       setStage(AppStage.RESULTS);
-    } catch (e) {
-      const errorMessage = handleAPIError(e);
-      alert(errorMessage); 
-      setStage(AppStage.JOB_SELECT); 
+      trackEvent('analyze_success');
+    } catch (e: any) {
+      console.error("Analysis failed:", e);
+      alert(e.message || "Ett fel uppstod vid analysen."); 
+      setStage(AppStage.JOB_SELECT); // Gå tillbaka så man kan försöka igen
+      trackEvent('analyze_error', { error: e.message });
     } finally {
       setIsAnalyzing(false);
     }
   };
 
   const handleReset = () => {
-    setCurrentView(AppView.HOME);
-    setStage(AppStage.LANDING);
-    setState({
-      cvText: '',
-      cvFileName: '',
-      selectedJob: null,
-      analysis: null,
-      generatedCoverLetter: null
-    });
+    if(window.confirm("Är du säker? Detta rensar all din data.")) {
+      setCurrentView(AppView.HOME);
+      setStage(AppStage.LANDING);
+      setState({
+        cvText: '',
+        cvFileName: '',
+        selectedJob: null,
+        analysis: null,
+        generatedCoverLetter: null
+      });
+      localStorage.removeItem('tailor_state');
+      trackEvent('reset_app');
+    }
   };
 
   return (
-    <div className={`min-h-screen font-sans selection:bg-coral/30 selection:text-ocean dark:text-gray-100 transition-colors duration-300`}>
-      <AppHeader 
-        onReset={handleReset} 
-        onNavigate={handleNavigate}
-        currentView={currentView}
-        stage={stage} 
-        isDarkMode={isDarkMode} 
-        toggleTheme={toggleTheme} 
-      />
+    <ErrorBoundary>
+      <div className={`min-h-screen font-sans selection:bg-coral/30 selection:text-ocean dark:text-gray-100 transition-colors duration-300`}>
+        <AppHeader 
+          onReset={handleReset} 
+          onNavigate={handleNavigate}
+          currentView={currentView}
+          stage={stage} 
+          isDarkMode={isDarkMode} 
+          toggleTheme={toggleTheme} 
+        />
 
-      <main className="container mx-auto px-4 md:px-6 relative z-10">
-        <AnimatePresence mode="wait">
-          
-          {/* --- HOME VIEW --- */}
-          {currentView === AppView.HOME && (
-            <motion.div
-              key="home"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              {stage === AppStage.LANDING && (
-                <div className="relative">
-                  <Hero />
-                  <div id="upload-section" ref={uploadRef} className="pb-24 pt-12 relative z-10">
-                    <FileUpload onFileLoaded={handleFileLoaded} />
+        <main className="container mx-auto px-4 md:px-6 relative z-10">
+          <AnimatePresence mode="wait">
+            
+            {currentView === AppView.HOME && (
+              <motion.div key="home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                {stage === AppStage.LANDING && (
+                  <div className="relative">
+                    <Hero />
+                    <div id="upload-section" ref={uploadRef} className="pb-24 pt-12 relative z-10">
+                      <FileUpload onFileLoaded={handleFileLoaded} />
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {stage !== AppStage.LANDING && (
-                <div className="py-12">
-                  {stage === AppStage.JOB_SELECT && (
-                    <motion.div 
-                      key="job"
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -20 }}
-                    >
-                      <JobSelector cvText={state.cvText} onJobSelected={handleJobSelected} />
-                    </motion.div>
-                  )}
+                {stage !== AppStage.LANDING && (
+                  <div className="py-12">
+                    {stage === AppStage.JOB_SELECT && (
+                      <motion.div key="job" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+                        <JobSelector cvText={state.cvText} onJobSelected={handleJobSelected} />
+                      </motion.div>
+                    )}
 
-                  {stage === AppStage.ANALYZING && (
-                    <motion.div 
-                      key="analyzing"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="flex flex-col items-center justify-center min-h-[60vh] text-center relative"
-                    >
-                      <div className="absolute inset-0 bg-gradient-to-tr from-ocean/10 to-coral/10 dark:from-ocean/5 dark:to-coral/5 rounded-full blur-3xl animate-pulse" />
-
-                      <div className="relative w-72 h-72 mb-10 flex items-center justify-center">
-                        <motion.div 
-                          animate={{ rotate: 360 }}
-                          transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-                          className="absolute inset-0 rounded-full border-t-2 border-b-2 border-ocean/30 dark:border-coral/30"
-                        />
-                        <motion.div 
-                          animate={{ rotate: -360 }}
-                          transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
-                          className="absolute inset-8 rounded-full border-r-2 border-l-2 border-teal-green/40 dark:border-orange-400/40"
-                        />
-                        <motion.div
-                          animate={{ scale: [1, 1.1, 1] }}
-                          transition={{ duration: 1.5, repeat: Infinity }}
-                          className="absolute inset-16 bg-white/50 dark:bg-gray-800/50 rounded-full blur-md"
-                        />
-                        <div className="w-44 h-44 relative z-10">
-                          <Mascot emotion="analyzing" className="w-full h-full drop-shadow-2xl" />
+                    {stage === AppStage.ANALYZING && (
+                      <motion.div key="analyzing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center justify-center min-h-[60vh] text-center relative">
+                        <div className="relative w-72 h-72 mb-10 flex items-center justify-center">
+                           <motion.div animate={{ rotate: 360 }} transition={{ duration: 8, repeat: Infinity, ease: "linear" }} className="absolute inset-0 rounded-full border-t-2 border-b-2 border-ocean/30 dark:border-coral/30" />
+                           <div className="w-44 h-44 relative z-10"><Mascot emotion="analyzing" className="w-full h-full" /></div>
                         </div>
-                      </div>
+                        <LoadingText />
+                        <div className="w-64 h-2 bg-gray-200 dark:bg-gray-700 rounded-full mt-6 overflow-hidden relative">
+                          <motion.div initial={{ width: '5%' }} animate={{ width: '90%' }} transition={{ duration: 10 }} className="absolute top-0 left-0 h-full bg-gradient-to-r from-ocean to-coral" />
+                        </div>
+                      </motion.div>
+                    )}
 
-                      <LoadingText />
-                      
-                      <div className="w-64 h-2 bg-gray-200 dark:bg-gray-700 rounded-full mt-6 overflow-hidden relative">
-                        <motion.div 
-                          initial={{ width: '5%' }}
-                          animate={{ width: '90%' }}
-                          transition={{ duration: 10, ease: "easeInOut" }}
-                          className="absolute top-0 left-0 h-full bg-gradient-to-r from-ocean to-coral"
-                        />
-                         <motion.div 
-                          animate={{ x: ['-100%', '100%'] }}
-                          transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-                          className="absolute top-0 left-0 h-full w-1/2 bg-gradient-to-r from-transparent via-white/30 to-transparent"
-                        />
-                      </div>
+                    {stage === AppStage.RESULTS && state.analysis && state.selectedJob && (
+                      <Suspense fallback={<LoadingFallback />}>
+                        <motion.div key="results" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
+                          <AnalysisDashboard analysis={state.analysis} job={state.selectedJob} cvText={state.cvText} />
+                        </motion.div>
+                      </Suspense>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            )}
 
-                      <p className="text-gray-500 dark:text-gray-400 mt-4 max-w-md font-medium animate-pulse font-hand text-xl rotate-1">
-                        "Låt mig göra grovjobbet åt dig..."
-                      </p>
-                    </motion.div>
-                  )}
+            {/* Övriga vyer (Salary, Interview, etc.) */}
+            {currentView === AppView.SALARY && (
+              <Suspense fallback={<LoadingFallback />}>
+                <motion.div key="salary" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
+                  <SalaryCalculator />
+                </motion.div>
+              </Suspense>
+            )}
 
-                  {stage === AppStage.RESULTS && state.analysis && state.selectedJob && (
-                    <motion.div 
-                      key="results"
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                    >
-                      <AnalysisDashboard 
-                        analysis={state.analysis} 
-                        job={state.selectedJob}
-                        cvText={state.cvText}
-                      />
-                    </motion.div>
-                  )}
-                </div>
-              )}
-            </motion.div>
-          )}
+            {currentView === AppView.INTERVIEW && (
+              <Suspense fallback={<LoadingFallback />}>
+                <motion.div key="interview" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="py-12">
+                  <InterviewPrep />
+                </motion.div>
+              </Suspense>
+            )}
 
-          {/* OTHER VIEWS */}
-          {currentView === AppView.SALARY && (
-            <motion.div key="salary" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
-              <SalaryCalculator />
-            </motion.div>
-          )}
+            {currentView === AppView.BINGO && (
+              <Suspense fallback={<LoadingFallback />}>
+                <motion.div key="games" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
+                  <CareerGames cvText={state.cvText} />
+                </motion.div>
+              </Suspense>
+            )}
 
-          {currentView === AppView.INTERVIEW && (
-            <motion.div key="interview" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="py-12">
-              <InterviewPrep />
-            </motion.div>
-          )}
+            {currentView === AppView.ROAST && (
+              <Suspense fallback={<LoadingFallback />}>
+                <motion.div key="roast" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
+                  <RoastMyCV cvText={state.cvText} />
+                </motion.div>
+              </Suspense>
+            )}
 
-          {currentView === AppView.BINGO && (
-            <motion.div key="games" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
-              <CareerGames cvText={state.cvText} />
-            </motion.div>
-          )}
+            {currentView === AppView.ABOUT && (
+              <Suspense fallback={<LoadingFallback />}>
+                <motion.div key="about" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
+                  <About />
+                </motion.div>
+              </Suspense>
+            )}
 
-          {currentView === AppView.ROAST && (
-            <motion.div key="roast" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
-              <RoastMyCV cvText={state.cvText} />
-            </motion.div>
-          )}
-
-          {currentView === AppView.ABOUT && (
-            <motion.div key="about" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
-              <About />
-            </motion.div>
-          )}
-
-        </AnimatePresence>
-      </main>
-    </div>
+          </AnimatePresence>
+        </main>
+      </div>
+    </ErrorBoundary>
   );
 };
 

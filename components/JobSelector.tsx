@@ -56,15 +56,20 @@ const JobSelector: React.FC<JobSelectorProps> = ({ cvText, onJobSelected }) => {
     },
   ];
 
-  const handleSearch = async () => {
+const handleSearch = async () => {
     setIsLoading(true);
     setHasSearched(true);
     const searchModeForService = mode === 'match' ? 'match' : 'search';
+    
+    // FIX: Skicka med cvText om vi är i 'match'-läge, så backend kan använda det!
+    // Om vi söker manuellt ('search') skickas sökordet 'roleSearch'.
+    // Om vi matchar ('match') skickas inget sökord, men backend får cvText och räknar ut det själv.
     const jobs = await findJobsForCV(cvText, searchModeForService, {
       city,
       radius,
-      role: roleSearch
+      role: mode === 'search' ? roleSearch : undefined // Skicka bara sökord om vi söker manuellt
     });
+    
     setFoundJobs(jobs);
     setIsLoading(false);
   };
